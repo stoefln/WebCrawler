@@ -16,6 +16,8 @@ import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.HashSet;
+import java.util.Set;
 
 
 public class CrawlAgent extends Agent {
@@ -87,7 +89,7 @@ public class CrawlAgent extends Agent {
 					InputStream stream = urlConnection.getInputStream();
 					BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
 					String type = urlConnection.getContentType();
-					log("Content Type: " + type);
+					log(url);
 					if(!type.contains("text/html")) {
 						throw new UnsupportedEncodingException("Not a html page");
 					}
@@ -104,7 +106,7 @@ public class CrawlAgent extends Agent {
 					content = null;
 					char endChar;
 					int i = 0;
-					StringBuilder links = new StringBuilder();
+					Set<URL> links = new HashSet<URL>();
 					while((i = lContent.indexOf(aTag, i)) >= 0) {
 						endChar = ' ';
 						int start = lContent.indexOf(hrefParam, i);
@@ -115,6 +117,9 @@ public class CrawlAgent extends Agent {
 						if(lContent.charAt(start) == '"') {
 							start++;
 							endChar = '"';
+						} else if(lContent.charAt(start) == '\'') {
+							start++;
+							endChar = '\'';
 						}
 						i = lContent.indexOf(endChar, start);
 						String link = lContent.substring(start, i);
@@ -124,22 +129,29 @@ public class CrawlAgent extends Agent {
 							}
 							URL linkURL = new URL(u, link);
 							link = linkURL.toString();
-							log("found link: " + link);
-							links.append(",");
-							links.append(link);
+							//log("found link: " + link);
+							links.add(linkURL);
 						} catch (MalformedURLException e) {
-							System.err.println("malformed URL: " + link);
+							//System.err.println("malformed URL: " + link);
 							continue;
 						}
 					}
-					links.deleteCharAt(0);
+					
+					log("found " + links.size() + " Links.");
 
 					// TODO: "," is not a good seperator, can be part of URLs 
 					// (ref: http://stackoverflow.com/questions/1547899/which-characters-make-a-url-invalid)
-					String urls = links.toString();
+					// is "%%" better?
+					StringBuilder sbUrls = new StringBuilder();
+					for(URL l : links) {
+						sbUrls.append("%%");
+						sbUrls.append(l.toString());
+					}
 					links = null;
-					log("returning message...");
+					String urls = sbUrls.toString();
+					sbUrls = null;
 					
+					log("returning message...");
 					ACLMessage reply = request.createReply();
 					 
 					if (urls.length() > 0) {

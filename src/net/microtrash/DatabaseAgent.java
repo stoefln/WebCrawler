@@ -2,7 +2,6 @@ package net.microtrash;
 
 import jade.core.AID;
 import jade.core.Agent;
-import jade.core.behaviours.Behaviour;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.core.behaviours.TickerBehaviour;
 import jade.domain.DFService;
@@ -11,10 +10,12 @@ import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
 
-import java.util.EmptyStackException;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.Hashtable;
-import java.util.Stack;
-import java.util.Vector;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 public class DatabaseAgent extends Agent {
 
@@ -24,9 +25,12 @@ public class DatabaseAgent extends Agent {
 	private static final long serialVersionUID = 2L;
 
 	private Hashtable<String,Webpage> parsedWebPages = new Hashtable<String,Webpage>();
-	private Stack<String> unparsedLinks = new Stack<String>();
-	private Vector<AID> crawlers = new Vector<AID>();
+	private Deque<String> unparsedLinks = new ArrayDeque<String>();
+	private List<AID> crawlers = new ArrayList<AID>();
+	private List<AID> freeCrawlers = new ArrayList<AID>();
 	private String seedUrl;
+	private ParseRequestPerformer parseRequestPerformer;
+	private ParseResponseReceiver parseResponseReceiver;
 	
 	protected void log(String message) {
 		System.out.println(message);
@@ -58,12 +62,15 @@ public class DatabaseAgent extends Agent {
 				ServiceDescription sd = new ServiceDescription(); 
 				sd.setType("crawling"); 
 				template.addServices(sd);
-				crawlers = new Vector<AID>();
 				try {
 					log("All agents: ");
 					DFAgentDescription[] result = DFService.search(myAgent, template); 
 					for (int i = 0; i < result.length; ++i) {
-						crawlers.add(result[i].getName());
+						AID name = result[i].getName();
+						if(!crawlers.contains(name)) {
+							freeCrawlers.add(name);
+							crawlers.add(name);
+						}
 						log("  "+result[i].getName());
 					}
 				}catch(FIPAException fe) {
@@ -74,10 +81,12 @@ public class DatabaseAgent extends Agent {
 		});
 		
 		// 2) loop through all available crawlers and push a linkUrl to each of them (as long as there are links to other webpages which are not present in the DB by now) 
-		addBehaviour(new ParseRequestPerformer());
+		parseRequestPerformer = new ParseRequestPerformer();
+		addBehaviour(parseRequestPerformer);
 		
 		// 3) get responses, insert page into the db and add unparsed urls to the unparsedUrls Stack
-		addBehaviour(new ParseResponseReceiver());
+		parseResponseReceiver = new ParseResponseReceiver();
+		addBehaviour(parseResponseReceiver);
 		
 		super.setup();
 	}
@@ -102,10 +111,12 @@ public class DatabaseAgent extends Agent {
 		
 		@Override
 		public void action() {
-			log("ParseRequestPerformer action()");
+			//log("ParseRequestPerformer action()");
 			try{
-				for(AID aid : crawlers ){
-					String link = unparsedLinks.pop();
+				log("Available Crawlers: " + freeCrawlers.size());
+				while(freeCrawlers.size() > 0) {
+					String link = unparsedLinks.removeFirst();
+					AID aid = freeCrawlers.remove(0);
 					log("send link for parsing: "+link);
 					ACLMessage message = new ACLMessage(ACLMessage.CFP);
 					message.addReceiver(aid);
@@ -114,8 +125,8 @@ public class DatabaseAgent extends Agent {
 					message.setReplyWith("message_"+aid+"_"+System.currentTimeMillis());
 					myAgent.send(message);
 				}
-			}catch(EmptyStackException e){} 
-			log("ParseRequestPerformer block()");
+			}catch(NoSuchElementException e){} 
+			//og("ParseRequestPerformer block()");
 			
 			block();
 		}
@@ -129,17 +140,31 @@ public class DatabaseAgent extends Agent {
 
 		@Override
 		public void action() {
-			log("ParseResponseReceiver action()");
+			//log("ParseResponseReceiver action()");
 			ACLMessage reply = myAgent.receive(); 
 			if (reply != null) {
-				String urls = reply.getContent();
-				String[] urlArr = urls.split(",");
-				for(String url : urlArr){
-					System.out.println(url);
+				AID aid = reply.getSender();
+				if(crawlers.contains(aid)) {
+					freeCrawlers.add(aid);
+				}
+				if(reply.getPerformative() == ACLMessage.PROPOSE) {
+					String urls = reply.getContent();
+					String[] urlArr = urls.split("%%");
+					for(String url : urlArr){
+						if(!unparsedLinks.contains(url)) {
+							unparsedLinks.addLast(url);
+						}
+					}
+					log("added " + urlArr.length + " URLs to queue.");
+				} else {
+					log("Crawler rejected because: " + reply.getContent());
 				}
 			} else {
-				log("ParseResponseReceiver block()");
+				//log("ParseResponseReceiver block()");
 				block();
+//				if(parseRequestPerformer != null) {
+//					parseRequestPerformer.restart();
+//				}
 			}
 
 		}
