@@ -70,43 +70,53 @@ public class CrawlAgent extends Agent {
 			myAgent.send(reply);
 		}
 
+		private String getWebpageContent(URL url) throws MalformedURLException, IOException{
+			log("reading webpage...");
+			URLConnection urlConnection = url.openConnection();
+			urlConnection.setAllowUserInteraction(false);
+			InputStream stream = urlConnection.getInputStream();
+			BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
+			String type = urlConnection.getContentType();
+	
+			if(!type.contains("text/html")) {
+				throw new UnsupportedEncodingException("Not a html page");
+			}
+			String line;
+			StringBuilder content = new StringBuilder();
+			while((line = reader.readLine()) != null) {
+				content.append(line);
+			}
+			reader.close();
+			log("reading done.");
+			return content.toString().toLowerCase();
+		}
+		
 		@Override
 		public void action() {
 			log("ParseRequestReceiver action()");
 			ACLMessage request = myAgent.receive(); 
 			if (request != null) {
 				log("got message!");
-				String url = request.getContent();
-			
+				String urlString = request.getContent();
+				
 				// TODO: move parts to own behaviour?
 				// TODO: robots.txt?
-				URL u;
-				URLConnection urlConnection = null;
+				
+				
 				try {
-					u = new URL(url);
-					urlConnection = u.openConnection();
-					urlConnection.setAllowUserInteraction(false);
-					InputStream stream = urlConnection.getInputStream();
-					BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
-					String type = urlConnection.getContentType();
-					log(url);
-					if(!type.contains("text/html")) {
-						throw new UnsupportedEncodingException("Not a html page");
-					}
-					String line;
-					StringBuilder content = new StringBuilder();
-					while((line = reader.readLine()) != null) {
-						content.append(line);
-					}
-					reader.close();
 					
+					URL url = new URL(urlString);
+					String lContent = getWebpageContent(url);
+
 					String aTag = "<a";
 					String hrefParam = "href=";
-					String lContent = content.toString().toLowerCase();
-					content = null;
+					
+					
 					char endChar;
 					int i = 0;
-					Set<URL> links = new HashSet<URL>();
+					
+					Webpage page = new Webpage(urlString);
+					
 					while((i = lContent.indexOf(aTag, i)) >= 0) {
 						endChar = ' ';
 						int start = lContent.indexOf(hrefParam, i);
@@ -127,36 +137,30 @@ public class CrawlAgent extends Agent {
 							if (link.startsWith("#")) {
 								continue;
 							}
-							URL linkURL = new URL(u, link);
+							URL linkURL = new URL(url, link);
 							link = linkURL.toString();
 							//log("found link: " + link);
-							links.add(linkURL);
+							page.addOutgoingLink(link);
 						} catch (MalformedURLException e) {
-							//System.err.println("malformed URL: " + link);
+							log("malformed URL: " + link);
 							continue;
 						}
 					}
 					
-					log("found " + links.size() + " Links.");
+					log("found " + page.getOutgoingLinks().size() + " outgoing links.");
 
 					// TODO: "," is not a good seperator, can be part of URLs 
 					// (ref: http://stackoverflow.com/questions/1547899/which-characters-make-a-url-invalid)
 					// is "%%" better?
-					StringBuilder sbUrls = new StringBuilder();
-					for(URL l : links) {
-						sbUrls.append("%%");
-						sbUrls.append(l.toString());
-					}
-					links = null;
-					String urls = sbUrls.toString();
-					sbUrls = null;
+					
 					
 					log("returning message...");
 					ACLMessage reply = request.createReply();
 					 
-					if (urls.length() > 0) {
+					if (page.getOutgoingLinks().size() > 0) {
+						String serialisedPage = Utility.toString(page);
 						reply.setPerformative(ACLMessage.PROPOSE);
-						reply.setContent(urls);
+						reply.setContent(serialisedPage);
 					} else {
 						reportFailure(request, "No links found");
 					} 

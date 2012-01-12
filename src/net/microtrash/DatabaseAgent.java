@@ -10,6 +10,7 @@ import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
 
+import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -52,7 +53,7 @@ public class DatabaseAgent extends Agent {
 		}
 		
 		// 1) look for agents which have registered as "crawlers" every 10 seconds 
-		addBehaviour(new TickerBehaviour(this, 10000) { 
+		addBehaviour(new TickerBehaviour(this, 20000) { 
 			
 			private static final long serialVersionUID = 1L;
 
@@ -93,11 +94,12 @@ public class DatabaseAgent extends Agent {
 	
 	@Override
 	protected void takeDown() { 
-		System.out.println("DatabaseAgent "+getAID().getName()+" sais good bye");
+		log("DatabaseAgent "+getAID().getName()+" sais good bye");
 	}
 	
 	public void addWebpage(Webpage page) {
 		parsedWebPages.put(page.getUrl(),page);
+		log("added webpage " + page.getUrl() + " to DB...");
 	}
 	
 	public boolean isWebpageParsed(String pageUrl){
@@ -141,21 +143,34 @@ public class DatabaseAgent extends Agent {
 		@Override
 		public void action() {
 			//log("ParseResponseReceiver action()");
-			ACLMessage reply = myAgent.receive(); 
+			ACLMessage reply = myAgent.receive();
+			
 			if (reply != null) {
 				AID aid = reply.getSender();
 				if(crawlers.contains(aid)) {
 					freeCrawlers.add(aid);
 				}
 				if(reply.getPerformative() == ACLMessage.PROPOSE) {
-					String urls = reply.getContent();
-					String[] urlArr = urls.split("%%");
-					for(String url : urlArr){
-						if(!unparsedLinks.contains(url)) {
+					String serialisedPage = reply.getContent();
+					Webpage page = null;
+					try {
+						page = (Webpage) Utility.fromString(serialisedPage);
+					} catch (IOException e) {
+						e.printStackTrace();
+						return;
+					} catch (ClassNotFoundException e) {
+						e.printStackTrace();
+						return;
+					}
+					addWebpage(page); 
+					int added = 0;
+					for(String url : page.getOutgoingLinks()){
+						if(!unparsedLinks.contains(url) && !isWebpageParsed(url)) {
 							unparsedLinks.addLast(url);
+							added++;
 						}
 					}
-					log("added " + urlArr.length + " URLs to queue.");
+					log("added " + added + " URLs to queue. unparsedUrls total: "+unparsedLinks.size());
 				} else {
 					log("Crawler rejected because: " + reply.getContent());
 				}
