@@ -29,6 +29,14 @@ public class CrawlAgent extends Agent {
 		System.out.println(message);
 	}
 	
+	protected void reportFailure(ACLMessage request, String text) {
+		log("reporting back: " + text);
+		ACLMessage reply = request.createReply();
+		reply.setPerformative(ACLMessage.REFUSE);
+		reply.setContent(text);
+		myAgent.send(reply);
+	}
+	
 	@Override
 	protected void setup() {
 		DFAgentDescription agentDescription = new DFAgentDescription(); 
@@ -59,14 +67,6 @@ public class CrawlAgent extends Agent {
 
 	private class ParseRequestReceiver extends CyclicBehaviour{
 		private static final long serialVersionUID = 1L;
-		
-		void reportFailure(ACLMessage request, String text) {
-			log("reporting back: " + text);
-			ACLMessage reply = request.createReply();
-			reply.setPerformative(ACLMessage.REFUSE);
-			reply.setContent(text);
-			myAgent.send(reply);
-		}
 
 		@Override
 		public void action() {
