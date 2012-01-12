@@ -76,7 +76,7 @@ public class CrawlAgent extends Agent {
 				log("got message!");
 				String url = request.getContent();
 			
-				// TODO: send HTTP request, parse response
+				// TODO: move parts to own behaviour?
 				// TODO: robots.txt?
 				URL u;
 				URLConnection urlConnection = null;
@@ -97,17 +97,52 @@ public class CrawlAgent extends Agent {
 						content.append(line);
 					}
 					reader.close();
-					// TODO: Parse content and extract URLs
+					
+					String aTag = "<a";
+					String hrefParam = "href=";
+					String lContent = content.toString().toLowerCase();
+					content = null;
+					char endChar;
+					int i = 0;
+					StringBuilder links = new StringBuilder();
+					while((i = lContent.indexOf(aTag, i)) >= 0) {
+						endChar = ' ';
+						int start = lContent.indexOf(hrefParam, i);
+						if (start < 0) {
+							continue;
+						}
+						start += hrefParam.length();
+						if(lContent.charAt(start) == '"') {
+							start++;
+							endChar = '"';
+						}
+						i = lContent.indexOf(endChar, start);
+						String link = lContent.substring(start, i);
+						try {
+							if (link.startsWith("#")) {
+								continue;
+							}
+							URL linkURL = new URL(u, link);
+							link = linkURL.toString();
+							log("found link: " + link);
+							links.append(",");
+							links.append(link);
+						} catch (MalformedURLException e) {
+							System.err.println("malformed URL: " + link);
+							continue;
+						}
+					}
+					links.deleteCharAt(0);
 
 					// TODO: "," is not a good seperator, can be part of URLs 
 					// (ref: http://stackoverflow.com/questions/1547899/which-characters-make-a-url-invalid)
-					String urls = "http://www.github.com,http://www.doodle.com";
+					String urls = links.toString();
+					links = null;
 					log("returning message...");
 					
-					// TODO: should we move following code to an extra Behavior?
 					ACLMessage reply = request.createReply();
 					 
-					if (urls != null) { // if there is a valid response data object
+					if (urls.length() > 0) {
 						reply.setPerformative(ACLMessage.PROPOSE);
 						reply.setContent(urls);
 					} else {
