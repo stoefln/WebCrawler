@@ -29,7 +29,8 @@ public class DatabaseAgent extends Agent {
 	private Deque<String> unparsedLinks = new ArrayDeque<String>();
 	private List<AID> crawlers = new ArrayList<AID>();
 	private List<AID> freeCrawlers = new ArrayList<AID>();
-	private String seedUrl;
+	private String seedUrl = "";
+	private String stayOnDomain = "";
 	private ParseRequestPerformer parseRequestPerformer;
 	private ParseResponseReceiver parseResponseReceiver;
 	
@@ -41,10 +42,16 @@ public class DatabaseAgent extends Agent {
 		System.out.println("Hallo I'm the DatabaseAgent! My name is "+getAID().getName());
 		
 		Object[] args = getArguments(); 
-		if (args != null && args.length > 0) {
-			seedUrl = (String) args[0];
-			unparsedLinks.push(seedUrl);
-			log("Starting with seedUrl "+seedUrl);
+		if (args != null && args.length != 0) {
+			if(args.length > 0){
+				seedUrl = (String) args[0];
+				unparsedLinks.push(seedUrl);
+			}
+			if(args.length > 1 && args[1].equals("stayOnDomain")){
+				String[] url = seedUrl.split("/"); // http://www.test.com
+				stayOnDomain = url[2]; // save domain for later checks
+			}
+			log("Starting with seedUrl "+seedUrl+ " and stayOnDomain: "+stayOnDomain);
 		}else{
 			// Make the agent terminate immediately
 			log("No seedUrl specified"); 
@@ -82,7 +89,7 @@ public class DatabaseAgent extends Agent {
 		});
 		
 		// 2) loop through all available crawlers and push a linkUrl to each of them (as long as there are links to other webpages which are not present in the DB by now) 
-		parseRequestPerformer = new ParseRequestPerformer();
+		parseRequestPerformer = new ParseRequestPerformer(this, 4000);
 		addBehaviour(parseRequestPerformer);
 		
 		// 3) get responses, insert page into the db and add unparsed urls to the unparsedUrls Stack
@@ -99,27 +106,32 @@ public class DatabaseAgent extends Agent {
 	
 	public void addWebpage(Webpage page) {
 		parsedWebPages.put(page.getUrl(),page);
-		log("added webpage " + page.getUrl() + " to DB...");
+		log("added webpage " + page.getUrl() + " to DB... total: "+parsedWebPages.size());
 	}
 	
 	public boolean isWebpageParsed(String pageUrl){
 		return parsedWebPages.contains(pageUrl);
 	}
 	
-	private class ParseRequestPerformer extends CyclicBehaviour{
+	private class ParseRequestPerformer extends TickerBehaviour{
 		
+		public ParseRequestPerformer(Agent a, long period) {
+			super(a, period);
+		}
+
+
 		private static final long serialVersionUID = 1L;
 
 		
 		@Override
-		public void action() {
-			//log("ParseRequestPerformer action()");
+		public void onTick() {
+			log("ParseRequestPerformer action()");
 			try{
 				log("Available Crawlers: " + freeCrawlers.size());
 				while(freeCrawlers.size() > 0) {
 					String link = unparsedLinks.removeFirst();
 					AID aid = freeCrawlers.remove(0);
-					log("send link for parsing: "+link);
+					log("send link for parsing to agent "+aid.getLocalName()+": "+link);
 					ACLMessage message = new ACLMessage(ACLMessage.CFP);
 					message.addReceiver(aid);
 					message.setContent(link);
@@ -127,10 +139,15 @@ public class DatabaseAgent extends Agent {
 					message.setReplyWith("message_"+aid+"_"+System.currentTimeMillis());
 					myAgent.send(message);
 				}
+				
+				if(unparsedLinks.size() == 0){
+					log("Parsing process finished. All pages: ");
+					log(parsedWebPages.toString());
+				}
 			}catch(NoSuchElementException e){} 
 			//og("ParseRequestPerformer block()");
 			
-			block();
+			
 		}
 
 		
@@ -148,7 +165,7 @@ public class DatabaseAgent extends Agent {
 			if (reply != null) {
 				AID aid = reply.getSender();
 				if(crawlers.contains(aid)) {
-					freeCrawlers.add(aid);
+					freeCrawlers.add(aid);	// crawler has done its job and is now queued again for the next one
 				}
 				if(reply.getPerformative() == ACLMessage.PROPOSE) {
 					String serialisedPage = reply.getContent();
@@ -165,9 +182,14 @@ public class DatabaseAgent extends Agent {
 					addWebpage(page); 
 					int added = 0;
 					for(String url : page.getOutgoingLinks()){
-						if(!unparsedLinks.contains(url) && !isWebpageParsed(url)) {
-							unparsedLinks.addLast(url);
-							added++;
+						if(!isWebpageParsed(url)) {
+							if(stayOnDomain.equals("")){
+								unparsedLinks.addLast(url);
+								added++;
+							}else if(url.indexOf(stayOnDomain) != -1){
+								unparsedLinks.addLast(url);
+								added++;
+							}
 						}
 					}
 					log("added " + added + " URLs to queue. unparsedUrls total: "+unparsedLinks.size());

@@ -16,8 +16,11 @@ import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
-import java.util.HashSet;
-import java.util.Set;
+
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 
 
 public class CrawlAgent extends Agent {
@@ -70,25 +73,19 @@ public class CrawlAgent extends Agent {
 			myAgent.send(reply);
 		}
 
-		private String getWebpageContent(URL url) throws MalformedURLException, IOException{
-			log("reading webpage...");
-			URLConnection urlConnection = url.openConnection();
-			urlConnection.setAllowUserInteraction(false);
-			InputStream stream = urlConnection.getInputStream();
-			BufferedReader reader = new BufferedReader(new InputStreamReader(stream));
-			String type = urlConnection.getContentType();
-	
-			if(!type.contains("text/html")) {
-				throw new UnsupportedEncodingException("Not a html page");
+		private boolean isHtmlAddress(String url){
+			
+			if(!url.startsWith("http") && !url.startsWith("https")){
+				return false;
 			}
-			String line;
-			StringBuilder content = new StringBuilder();
-			while((line = reader.readLine()) != null) {
-				content.append(line);
+			String[] noHtmlExtension = {".png", ".jpg", ".jpeg", ".gif"};
+			
+			for(String ext : noHtmlExtension){
+				if(url.endsWith(ext)){
+					return false;
+				}
 			}
-			reader.close();
-			log("reading done.");
-			return content.toString().toLowerCase();
+			return true;
 		}
 		
 		@Override
@@ -98,63 +95,20 @@ public class CrawlAgent extends Agent {
 			if (request != null) {
 				log("got message!");
 				String urlString = request.getContent();
-				
-				// TODO: move parts to own behaviour?
-				// TODO: robots.txt?
-				
-				
-				try {
-					
-					URL url = new URL(urlString);
-					String lContent = getWebpageContent(url);
 
-					String aTag = "<a";
-					String hrefParam = "href=";
-					
-					
-					char endChar;
-					int i = 0;
-					
+				try {
+					Document doc = Jsoup.connect(urlString).get();
+					Elements newsHeadlines = doc.select("a");
 					Webpage page = new Webpage(urlString);
 					
-					while((i = lContent.indexOf(aTag, i)) >= 0) {
-						endChar = ' ';
-						int start = lContent.indexOf(hrefParam, i);
-						if (start < 0) {
-							continue;
+					for(Element link : newsHeadlines){
+						String url = link.attr("abs:href");
+						if(isHtmlAddress(url)){
+							page.addOutgoingLink(url);
 						}
-						start += hrefParam.length();
-						if(lContent.charAt(start) == '"') {
-							start++;
-							endChar = '"';
-						} else if(lContent.charAt(start) == '\'') {
-							start++;
-							endChar = '\'';
-						}
-						i = lContent.indexOf(endChar, start);
-						String link = lContent.substring(start, i);
-						try {
-							if (link.startsWith("#")) {
-								continue;
-							}
-							URL linkURL = new URL(url, link);
-							link = linkURL.toString();
-							//log("found link: " + link);
-							page.addOutgoingLink(link);
-						} catch (MalformedURLException e) {
-							log("malformed URL: " + link);
-							continue;
-						}
-					}
-					
+					}					
 					log("found " + page.getOutgoingLinks().size() + " outgoing links.");
 
-					// TODO: "," is not a good seperator, can be part of URLs 
-					// (ref: http://stackoverflow.com/questions/1547899/which-characters-make-a-url-invalid)
-					// is "%%" better?
-					
-					
-					log("returning message...");
 					ACLMessage reply = request.createReply();
 					 
 					if (page.getOutgoingLinks().size() > 0) {
@@ -165,12 +119,11 @@ public class CrawlAgent extends Agent {
 						reportFailure(request, "No links found");
 					} 
 					myAgent.send(reply);
-				} catch (MalformedURLException e) {
-					reportFailure(request, "MalformedURLException");
-				} catch (UnsupportedEncodingException e) {
-					reportFailure(request, e.getMessage());
+				
 				} catch (IOException e) {
 					reportFailure(request, "Connection Error");
+				} catch(IllegalArgumentException e){
+					reportFailure(request, "Malformed URL: "+urlString);
 				}
 				
 			} else {
