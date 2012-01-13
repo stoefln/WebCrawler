@@ -8,14 +8,7 @@ import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.UnsupportedEncodingException;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLConnection;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -103,7 +96,7 @@ public class CrawlAgent extends Agent {
 					
 					for(Element link : newsHeadlines){
 						String url = link.attr("abs:href");
-						if(isHtmlAddress(url)){
+						if(!link.attr("href").startsWith("#") && isHtmlAddress(url)){
 							page.addOutgoingLink(url);
 						}
 					}					

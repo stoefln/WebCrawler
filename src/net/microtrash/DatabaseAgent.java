@@ -14,9 +14,11 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 public class DatabaseAgent extends Agent {
 
@@ -27,6 +29,7 @@ public class DatabaseAgent extends Agent {
 
 	private Hashtable<String,Webpage> parsedWebPages = new Hashtable<String,Webpage>();
 	private Deque<String> unparsedLinks = new ArrayDeque<String>();
+	private Set<String> workingOn = new HashSet<String>();
 	private List<AID> crawlers = new ArrayList<AID>();
 	private List<AID> freeCrawlers = new ArrayList<AID>();
 	private String seedUrl = "";
@@ -60,26 +63,27 @@ public class DatabaseAgent extends Agent {
 		}
 		
 		// 1) look for agents which have registered as "crawlers" every 10 seconds 
-		addBehaviour(new TickerBehaviour(this, 20000) { 
+		addBehaviour(new TickerBehaviour(this, 10000) { 
 			
 			private static final long serialVersionUID = 1L;
 
 			protected void onTick() {
-				log("Update the list of crawler agents.");
+				//log("Update the list of crawler agents.");
 				DFAgentDescription template = new DFAgentDescription(); 
 				ServiceDescription sd = new ServiceDescription(); 
 				sd.setType("crawling"); 
 				template.addServices(sd);
 				try {
-					log("All agents: ");
+					//log("All agents: ");
 					DFAgentDescription[] result = DFService.search(myAgent, template); 
 					for (int i = 0; i < result.length; ++i) {
 						AID name = result[i].getName();
 						if(!crawlers.contains(name)) {
 							freeCrawlers.add(name);
 							crawlers.add(name);
+							log("new Crawler registered: " + result[i].getName());
 						}
-						log("  "+result[i].getName());
+						//log("  "+result[i].getName());
 					}
 				}catch(FIPAException fe) {
 					fe.printStackTrace();
@@ -105,12 +109,12 @@ public class DatabaseAgent extends Agent {
 	}
 	
 	public void addWebpage(Webpage page) {
-		parsedWebPages.put(page.getUrl(),page);
+		parsedWebPages.put(page.getUrl().toLowerCase(),page);
 		log("added webpage " + page.getUrl() + " to DB... total: "+parsedWebPages.size());
 	}
 	
 	public boolean isWebpageParsed(String pageUrl){
-		return parsedWebPages.contains(pageUrl);
+		return parsedWebPages.containsKey(pageUrl.toLowerCase());
 	}
 	
 	private class ParseRequestPerformer extends TickerBehaviour{
@@ -125,27 +129,34 @@ public class DatabaseAgent extends Agent {
 		
 		@Override
 		public void onTick() {
-			log("ParseRequestPerformer action()");
+			//log("ParseRequestPerformer action()");
 			try{
-				log("Available Crawlers: " + freeCrawlers.size());
+				log("Available Crawlers: " + freeCrawlers.size() + ", unparsed Links: " + unparsedLinks.size());
 				while(freeCrawlers.size() > 0) {
 					String link = unparsedLinks.removeFirst();
-					AID aid = freeCrawlers.remove(0);
-					log("send link for parsing to agent "+aid.getLocalName()+": "+link);
-					ACLMessage message = new ACLMessage(ACLMessage.CFP);
-					message.addReceiver(aid);
-					message.setContent(link);
-					message.setConversationId("parse-url");
-					message.setReplyWith("message_"+aid+"_"+System.currentTimeMillis());
-					myAgent.send(message);
+					if(!workingOn.contains(link)) {
+						workingOn.add(link);
+						AID aid = freeCrawlers.remove(0);
+						log("send link for parsing to agent"+aid.getLocalName()+": "+link);
+						ACLMessage message = new ACLMessage(ACLMessage.CFP);
+						message.addReceiver(aid);
+						message.setContent(link);
+						message.setConversationId("parse-url");
+						message.setReplyWith("message_"+aid+"_"+System.currentTimeMillis());
+						myAgent.send(message);
+					} else {
+						log("Removing duplicate entry (" + link);
+					}
 				}
-				
-				if(unparsedLinks.size() == 0){
-					log("Parsing process finished. All pages: ");
-					log(parsedWebPages.toString());
-				}
-			}catch(NoSuchElementException e){} 
-			//og("ParseRequestPerformer block()");
+			}catch(NoSuchElementException e){
+				log("Queue is empty.");
+			} 
+			
+			if(unparsedLinks.size() == 0 && freeCrawlers.size() == crawlers.size()){
+				log("Parsing process finished. All pages: ");
+				log(parsedWebPages.toString());
+			}
+			//log("ParseRequestPerformer block()");
 			
 			
 		}
@@ -179,10 +190,13 @@ public class DatabaseAgent extends Agent {
 						e.printStackTrace();
 						return;
 					}
-					addWebpage(page); 
+					if (!isWebpageParsed(page.getUrl())) {
+						addWebpage(page); 
+						workingOn.remove(page.getUrl());
+					}
 					int added = 0;
 					for(String url : page.getOutgoingLinks()){
-						if(!isWebpageParsed(url)) {
+						if(!unparsedLinks.contains(url) && !isWebpageParsed(url) && !workingOn.contains(url)) {
 							if(stayOnDomain.equals("")){
 								unparsedLinks.addLast(url);
 								added++;
@@ -199,9 +213,6 @@ public class DatabaseAgent extends Agent {
 			} else {
 				//log("ParseResponseReceiver block()");
 				block();
-//				if(parseRequestPerformer != null) {
-//					parseRequestPerformer.restart();
-//				}
 			}
 
 		}
