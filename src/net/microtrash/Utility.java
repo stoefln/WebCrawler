@@ -11,8 +11,8 @@ public class Utility {
 	
 	/** Read the object from Base64 string. */
     public static Object fromString( String s ) throws IOException, ClassNotFoundException {
-		byte [] data = s.getBytes();
-		ObjectInputStream ois = new ObjectInputStream( new ByteArrayInputStream(  data ) );
+		byte [] data = Base64.decodeFast(s.getBytes());
+		ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(  data ));
 		Object o  = ois.readObject();
 		ois.close();
 		return o;
@@ -24,7 +24,7 @@ public class Utility {
         ObjectOutputStream oos = new ObjectOutputStream( baos );
         oos.writeObject( o );
         oos.close();
-        return new String( baos.toByteArray() );
+        return Base64.encodeToString(baos.toByteArray(), false);
     }
 
 }
