@@ -9,7 +9,8 @@ public class Webpage implements Serializable {
 	private String url;
 	private String title;
 	private ArrayList<String> outgoingLinks = new ArrayList<String>();
-	
+	private String selectedContent;
+
 	public Webpage(String url){
 		this.url = url;
 	}
@@ -33,5 +34,13 @@ public class Webpage implements Serializable {
 	}
 	public ArrayList<String> getOutgoingLinks(){
 		return this.outgoingLinks;
+	}
+
+	public String getSelectedContent() {
+		return selectedContent;
+	}
+
+	public void setSelectedContent(String selectedContent) {
+		this.selectedContent = selectedContent;
 	}
 }

@@ -71,7 +71,7 @@ public class CrawlAgent extends Agent {
 			if(!url.startsWith("http") && !url.startsWith("https")){
 				return false;
 			}
-			String[] noHtmlExtension = {".png", ".jpg", ".jpeg", ".gif"};
+			String[] noHtmlExtension = {".png", ".jpg", ".jpeg", ".gif", ".pdf"};
 			
 			for(String ext : noHtmlExtension){
 				if(url.endsWith(ext)){
@@ -91,16 +91,21 @@ public class CrawlAgent extends Agent {
 
 				try {
 					Document doc = Jsoup.connect(urlString).get();
-					Elements newsHeadlines = doc.select("a");
 					Webpage page = new Webpage(urlString);
-					
-					for(Element link : newsHeadlines){
+					Elements links = doc.select("a");
+					for(Element link : links){
 						String url = link.attr("abs:href");
 						if(!link.attr("href").startsWith("#") && isHtmlAddress(url)){
 							page.addOutgoingLink(url);
 						}
 					}					
 					log("found " + page.getOutgoingLinks().size() + " outgoing links.");
+
+					Elements contents = doc.select("#advert-info-whCode");
+					for(Element content : contents){
+						String s = content.ownText();
+						page.setSelectedContent(s);
+					}
 
 					ACLMessage reply = request.createReply();
 					 

@@ -9,6 +9,9 @@ import jade.domain.FIPAException;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
+import jade.wrapper.AgentController;
+import jade.wrapper.ContainerController;
+import jade.wrapper.StaleProxyException;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
@@ -33,7 +36,7 @@ public class DatabaseAgent extends Agent {
 	private List<AID> crawlers = new ArrayList<AID>();
 	private List<AID> freeCrawlers = new ArrayList<AID>();
 	private String seedUrl = "";
-	private String stayOnDomain = "";
+	private String urlFilter = "";
 	private ParseRequestPerformer parseRequestPerformer;
 	private ParseResponseReceiver parseResponseReceiver;
 	
@@ -43,21 +46,35 @@ public class DatabaseAgent extends Agent {
 	@Override
 	protected void setup() {
 		System.out.println("Hallo I'm the DatabaseAgent! My name is "+getAID().getName());
-		
+
 		Object[] args = getArguments(); 
 		if (args != null && args.length != 0) {
 			if(args.length > 0){
 				seedUrl = (String) args[0];
 				unparsedLinks.push(seedUrl);
 			}
-			if(args.length > 1 && args[1].equals("stayOnDomain")){
-				String[] url = seedUrl.split("/"); // http://www.test.com
-				stayOnDomain = url[2]; // save domain for later checks
+			if(args.length > 1){
+				urlFilter = (String) args[1];
 			}
-			log("Starting with seedUrl "+seedUrl+ " and stayOnDomain: "+stayOnDomain);
+			if(args.length > 2){
+				int spawnCrawlAgents = Integer.parseInt((String) args[2]);
+				ContainerController cc = getContainerController();
+				for(int i=0;i < spawnCrawlAgents;i++){
+					AgentController ac = null;
+					try {
+						String agentName = "Crawl" + (i + 1);
+						ac = cc.createNewAgent(agentName, "net.microtrash.CrawlAgent", null);
+						ac.start();
+						log("Spawned Agent \""+agentName+"\"");
+					} catch (StaleProxyException e) {
+						e.printStackTrace();
+					}
+				}
+			}
+			log("Starting with seedUrl "+seedUrl+ " and filter: "+urlFilter);
 		}else{
 			// Make the agent terminate immediately
-			log("No seedUrl specified"); 
+			log("No seedUrl specified. Please provide 1-3 params: seeUrl, urlFilter and crawlAgentAmount");
 			doDelete();
 			return;
 		}
@@ -155,6 +172,7 @@ public class DatabaseAgent extends Agent {
 			if(unparsedLinks.size() == 0 && freeCrawlers.size() == crawlers.size()){
 				log("Parsing process finished. All pages: ");
 				log(parsedWebPages.toString());
+				stop();
 			}
 			//log("ParseRequestPerformer block()");
 			
@@ -197,14 +215,17 @@ public class DatabaseAgent extends Agent {
 					int added = 0;
 					for(String url : page.getOutgoingLinks()){
 						if(!unparsedLinks.contains(url) && !isWebpageParsed(url) && !workingOn.contains(url)) {
-							if(stayOnDomain.equals("")){
+							if(urlFilter.equals("")){
 								unparsedLinks.addLast(url);
 								added++;
-							}else if(url.indexOf(stayOnDomain) != -1){
+							}else if(url.indexOf(urlFilter) != -1){
 								unparsedLinks.addLast(url);
 								added++;
 							}
 						}
+					}
+					if(page.getSelectedContent() != null){
+						log("> "+page.getSelectedContent());
 					}
 					log("added " + added + " URLs to queue. unparsedUrls total: "+unparsedLinks.size());
 				} else {
